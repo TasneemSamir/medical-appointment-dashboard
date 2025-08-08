@@ -11,12 +11,12 @@ data=pd.read_csv('KaggleV2-May-2016.csv')
 coords_df = pd.read_csv("neighborhood_coordinates.csv") 
 
 #explore data
-# data.head()
-# data.dtypes
-# data.describe(include='all')
-# data.isna().sum()
-# data.info()
-# data.shape
+data.head()
+data.dtypes
+data.describe(include='all')
+data.isna().sum()
+data.info()
+data.shape
 
 data['ScheduledDay']=pd.to_datetime(data['ScheduledDay'])
 data['AppointmentDay']=pd.to_datetime(data['AppointmentDay'])
@@ -29,6 +29,7 @@ data['Gender']=data['Gender'].map({'F': 'Female', 'M': 'Male'})
 
 data['SMS_received'] = data['SMS_received'].astype(bool)
 data['Scholarship'] = data['Scholarship'].astype(bool)
+
 #remove duplicates if exists
 data.drop_duplicates(inplace=True)
 
@@ -55,7 +56,7 @@ num_patients=data['PatientId'].nunique()
 no_show_count=data[data['No-show']==0]['PatientId'].value_counts()
 repeated_no_show= (no_show_count>1).sum()
 
-###visualization####
+######################################VISUALIZATION###########################
 
 ##GET THE NEIGHBORHOODS COORDINATES AND SAVE AS A CSV FILE 
 # neighborhoods = data['Neighbourhood'].unique()
@@ -102,6 +103,7 @@ Handicap_fig.update_layout(
     font_color='white',
     yaxis=dict(ticksuffix="%") 
 )
+
 #####chronic or not no show rate chart ##########
 data['chronic_status']=data['n_chronic'].apply(lambda x :'Chronic Condition' if x>0 else 'No Chronic Condition')
 chronic_rate=data.groupby('chronic_status')['No-show'].apply(lambda x:(x==0).mean()*100).reset_index(name='no_show_rate')
@@ -118,6 +120,7 @@ Chronic_fig.update_layout(
     plot_bgcolor='#181830',
     font_color='white',
     yaxis=dict(ticksuffix="%") )
+
 #####sms chart ########
 sms_counts=data.groupby(['SMS_received','No-show']).size().reset_index(name='count')
 sms_counts['SMS_received'] = sms_counts['SMS_received'].map({True: 'Received SMS', False: 'No SMS'})
@@ -139,7 +142,7 @@ sms_fig.update_layout(
     font_color='white'
 )
 
-#no-show rate per weekday
+#no-show rate per weekday chart
 appointments_rate =(data.groupby('appointment_weekday')['No-show'].apply(lambda x: (x == 0).mean() * 100).reset_index(name='no_show_rate')
 )
 day_fig = px.bar(
@@ -182,7 +185,7 @@ merged_df = no_show_stats.merge(coords_df, left_on='Neighbourhood', right_on='Ne
 #create app
 app=dash.Dash(__name__,external_stylesheets=[dbc.themes.DARKLY])
 
-#create app layout 
+########################create app layout ############################
 app.layout = dbc.Container([
     html.H1("Medical Appointment Dashboard",
             style={'textAlign': 'center', 'color': '#F72585', 'marginBottom': '36px'}),
@@ -281,7 +284,7 @@ app.layout = dbc.Container([
 
 ], fluid=True, style={'backgroundColor': '#181830', 'padding': '24px'})
 
-
+#########################################handling callbacks############################
 @app.callback(
     Output('age-distribution','figure'),
     Input('gender-filter','value')
@@ -305,6 +308,7 @@ def update_age_distribution(selected_gender):
         plot_bgcolor="#1A1338")
     return fig
 
+
 @app.callback(
         Output('pie_fig','figure'),
         Input('gender-filter','value')
@@ -314,7 +318,6 @@ def update_no_show(selected_gender):
         df_filtered=data[data['Gender']==selected_gender]
     else:
         df_filtered=data
-    ########pie chart #####
     pie_counts = df_filtered['No-show'].value_counts().reset_index()
     pie_counts['No-show'] = pie_counts['No-show'].map({1: 'Show', 0: 'No Show'})
     pie_fig = px.pie(
@@ -331,8 +334,8 @@ def update_no_show(selected_gender):
         plot_bgcolor='#181830',
         font_color='white'
     )
-    
     return pie_fig
+
 
 @app.callback(
     Output('chronic-chart','figure'),
@@ -368,6 +371,7 @@ def update_chronic_chart(selected_condition):
     )
 
     return fig
+
 
 
 @app.callback(
@@ -461,4 +465,5 @@ def update_neighborhood(selected_neighborhood,selected_chart):
     return fig
 
 if __name__ == '__main__':
+
     app.run(debug=True)
