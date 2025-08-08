@@ -3,10 +3,12 @@ import dash
 from dash import dcc, html, Input ,Output
 import dash_bootstrap_components as dbc 
 import plotly.express as px 
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
 
 # Data Preprocessing 
-# Load dataset
 data=pd.read_csv('KaggleV2-May-2016.csv')
+coords_df = pd.read_csv("neighborhood_coordinates.csv") 
 
 #explore data
 # data.head()
@@ -16,7 +18,6 @@ data=pd.read_csv('KaggleV2-May-2016.csv')
 # data.info()
 # data.shape
 
-# Parse dates
 data['ScheduledDay']=pd.to_datetime(data['ScheduledDay'])
 data['AppointmentDay']=pd.to_datetime(data['AppointmentDay'])
 data['days_between']=(data['AppointmentDay']-data['ScheduledDay']).dt.days
@@ -24,7 +25,8 @@ data['appointment_weekday']=data['AppointmentDay'].dt.day_name()
 data['scheduled_weekday']=data['ScheduledDay'].dt.day_name()
 # 0 didn't show up , 1 show up 
 data['No-show']=data['No-show'].map({'Yes': 0,'No':1})
-# convert to boolean
+data['Gender']=data['Gender'].map({'F': 'Female', 'M': 'Male'})
+
 data['SMS_received'] = data['SMS_received'].astype(bool)
 data['Scholarship'] = data['Scholarship'].astype(bool)
 #remove duplicates if exists
@@ -54,27 +56,68 @@ no_show_count=data[data['No-show']==0]['PatientId'].value_counts()
 repeated_no_show= (no_show_count>1).sum()
 
 ###visualization####
+
+##GET THE NEIGHBORHOODS COORDINATES AND SAVE AS A CSV FILE 
+# neighborhoods = data['Neighbourhood'].unique()
+# #setup geocoder
+# geolocator = Nominatim(user_agent="my_geocoder")
+
+# #increase timeout
+# geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1, max_retries=3, error_wait_seconds=5, swallow_exceptions=False)
+
+# #store results
+# coords = []
+# for place in neighborhoods:
+#     query = f"{place}, Vitória, Espírito Santo, Brazil"
+#     location =geolocator.geocode(query, timeout=10)
+#     if location:
+#         coords.append((place, location.latitude, location.longitude))
+#     else:
+#         coords.append((place, None, None))
+
+# #Save to CSV
+# coords_df = pd.DataFrame(coords, columns=["Neighborhood", "Latitude", "Longitude"])
+# coords_df.to_csv("neighborhood_coordinates.csv", index=False)
+# print("Coordinates saved to neighborhood_coordinates.csv")
+
 colors = [
     "#33C3F0", 
     "#FF4DA6", 
 ]
 
-########pie chart #####
-pie_counts = data['No-show'].value_counts()
-pie_fig = px.pie(
-    values=pie_counts.values,
-    names=['Show', 'No Show'],
-    hole=0.4,
-    color=pie_counts.index,
-    title="Show vs. No Show Rate",
-    color_discrete_sequence=colors)
-
-pie_fig.update_layout(
+####Handicap chart#########
+handcap_rate=data.groupby('Handcap')['No-show'].apply(lambda x:(x==0).mean()*100).reset_index(name='no_show_count')
+handcap_rate['Handcap'] = handcap_rate['Handcap'].map({0: 'No Handicap', 1: 'Handicap'})
+Handicap_fig=px.bar(handcap_rate,
+                        x='Handcap',
+                        y='no_show_count',
+                        labels={'no_show_count': 'No-Show Rate (%)', 'Handicap': 'Handicap Status'},
+                        title='No-Show Rate by Handicap',
+                        color='Handcap',
+                        color_discrete_sequence=['#33C3F0', '#FF4DA6'])
+Handicap_fig.update_layout(
+    template='plotly_dark',
     paper_bgcolor='#181830',
     plot_bgcolor='#181830',
-    font_color='white'
+    font_color='white',
+    yaxis=dict(ticksuffix="%") 
 )
-
+#####chronic or not no show rate chart ##########
+data['chronic_status']=data['n_chronic'].apply(lambda x :'Chronic Condition' if x>0 else 'No Chronic Condition')
+chronic_rate=data.groupby('chronic_status')['No-show'].apply(lambda x:(x==0).mean()*100).reset_index(name='no_show_rate')
+Chronic_fig=px.bar(chronic_rate,
+                   x='chronic_status',
+                   y='no_show_rate',
+                   labels={'no_show_rate':'No-Show Rate (%)','chronic_status':'Chronic Condition Status'},
+                   title='No-Show Rate : Chronic vs. Non-Chronic Conditions',
+                    color_discrete_sequence=["#FF4DA6"] 
+                   )
+Chronic_fig.update_layout(
+    template='plotly_dark',
+    paper_bgcolor='#181830',
+    plot_bgcolor='#181830',
+    font_color='white',
+    yaxis=dict(ticksuffix="%") )
 #####sms chart ########
 sms_counts=data.groupby(['SMS_received','No-show']).size().reset_index(name='count')
 sms_counts['SMS_received'] = sms_counts['SMS_received'].map({True: 'Received SMS', False: 'No SMS'})
@@ -96,71 +139,46 @@ sms_fig.update_layout(
     font_color='white'
 )
 
-###showing by day of the week###
-appointments_count=data.groupby(['appointment_weekday','No-show']).size().reset_index(name='p_count')
-appointments_count['No-show'] = appointments_count['No-show'].map({1: 'Showed Up', 0: 'No Show'})
-day_fig=px.bar(
-    appointments_count,
+#no-show rate per weekday
+appointments_rate =(data.groupby('appointment_weekday')['No-show'].apply(lambda x: (x == 0).mean() * 100).reset_index(name='no_show_rate')
+)
+day_fig = px.bar(
+    appointments_rate,
     x='appointment_weekday',
-    y='p_count',
-    color='No-show',
-    labels={'p_count':'Number of Appointments','appointment_weekday': 'appointment weekday'},
-    title='Days of the week Analysis',
-    color_discrete_map={'Showed Up': "#33C3F0", 'No Show': "#FF4DA6"}
+    y='no_show_rate',
+    labels={'no_show_rate': 'No-show Rate (%)', 'appointment_weekday': 'Appointment Weekday'},
+    title='No-show Rate by Day of the Week',
+    color_discrete_sequence=["#FF4DA6"] 
 )
 day_fig.update_layout(
     template='plotly_dark',
     paper_bgcolor='#181830',
     plot_bgcolor='#181830',
-    font_color='white'
+    font_color='white',
+    yaxis=dict(ticksuffix="%") 
 )
 
+
 ###scholarship chart###
-data['Show Status'] = data['No-show'].map({0: 'No Show', 1: 'Show'})
-scholarship_counts=data.groupby(['Scholarship','Show Status']).size().reset_index(name='count')
-fig=px.bar(
-    scholarship_counts,
-    x='Scholarship',
-    y='count',
-    color='Show Status',
-    barmode='group',
-    title='Show vs No Show Counts by Scholarship Status',
-    labels={'Count': 'Number of Appointments', 'Scholarship Status': 'Scholarship Status'},
-    color_discrete_map={'Show': '#33C3F0', 'No Show': '#FF4DA6'}
-)
-fig.update_layout(
+scholarship_rate=(data.groupby('Scholarship')['No-show'].apply(lambda x:(x == 0).mean()* 100).reset_index(name='no_show_rate'))
+scholarship_fig=px.bar(scholarship_rate,x='Scholarship',y='no_show_rate',
+                       labels={'no_show_rate': 'No-show Rate (%)'},
+                                title='No-show Rate by Scholarship',
+                                color_discrete_sequence=["#FF4DA6"])
+scholarship_fig.update_layout(
     template='plotly_dark',
     paper_bgcolor='#181830',
     plot_bgcolor='#181830',
-    font_color='white'
+    font_color='white',
+    yaxis=dict(ticksuffix="%") 
 )
 
-#####spider chart#########
-#prepare data 
-# def prepare_data(data,col):
-#     return data.groupby(col,group_keys=False).apply(
-#         lambda g :pd.Series({
-#             'No Show Rate (%)': 100*(g['No-show']==0).mean(),
-#             'Average Age': g['Age'].mean(),
-#             'SMS Received (%)':100*(g['SMS_received']).mean(),
-#             # 'Scholarship':100*g['Scholarship'].mean(),
-#             'Avg Days Between':g['days_between'].mean()
-#         })).reset_index()
 
-# gender=prepare_data(data,'Gender')
-# scholarship=prepare_data(data,'Scholarship')
-# Sms=prepare_data(data,'SMS_received')
+###for neighboorhood map
+no_show_stats = data.groupby('Neighbourhood')['No-show'].apply(
+lambda x: (x == 0).mean() * 100).reset_index(name='no_show_rate')
+merged_df = no_show_stats.merge(coords_df, left_on='Neighbourhood', right_on='Neighborhood')
 
-# scholarship['Scholarship']=scholarship['Scholarship'].map({True: 'Has Scholarship', False: 'No Scholarship'})
-# Sms['SMS_received'] = Sms['SMS_received'].map({True: 'Received SMS', False: 'No SMS'})
-
-
-
-# profile_options = {
-#     'Gender': (gender, 'Gender'),
-#     'Scholarship': (scholarship, 'Scholarship'),
-#     'SMS_received': (Sms, 'SMS Received (%)')
-# }
 #create app
 app=dash.Dash(__name__,external_stylesheets=[dbc.themes.DARKLY])
 
@@ -168,14 +186,6 @@ app=dash.Dash(__name__,external_stylesheets=[dbc.themes.DARKLY])
 app.layout = dbc.Container([
     html.H1("Medical Appointment Dashboard",
             style={'textAlign': 'center', 'color': '#F72585', 'marginBottom': '36px'}),
-    # html.H1('Patient Segment Behavioral Profiles', style={'textAlign': 'center', 'color': '#F72585', 'marginBottom': '36px'}),
-    # dcc.Dropdown(
-    #     id='segment-dropdown',
-    #     options=[{'label': k, 'value': k} for k in profile_options.keys()],
-    #     value='Gender',
-    #     clearable=False
-    # ),
-    # dcc.Graph(id='radar-chart'),
     dbc.Row([  # First Row
         # LEFT COLUMN: KPI cards and pie chart
         dbc.Col([
@@ -200,25 +210,29 @@ app.layout = dbc.Container([
             ], className="mb-4",justify="around"),
 
             dbc.Row([  # Pie chart 
-                dbc.Col(dcc.Graph(figure=pie_fig), width=12)
+                dbc.Col(dcc.Graph(id='pie_fig'), width=12)
             ]),
         ], width=4, style={'minWidth': '340px','align':"stretch"}),
-
 
         # RIGHT COLUMN: age/gender
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
                     dcc.Dropdown(id="gender-filter",
-                                 options=[{"label": "Male", "value": "M"}, {"label": "Female", "value": "F"}],
+                                 options=[{"label": "Male", "value": "Male"}, {"label": "Female", "value": "Female"}],
                                  placeholder="Select Gender"),
                     dcc.Graph(id='age-distribution')
                 ])
             ], className="mb-4"),
         ], width=8)
     ]),
-
     dbc.Row([ #second row 
+            dbc.Col( dcc.Graph(id='Handicap-chart',figure=Handicap_fig), width=6,style={'height': '440px'}),
+
+            dbc.Col( dcc.Graph(id="Chronic-chart",figure=Chronic_fig), width=6,style={'height': '440px'}),
+
+        ],className='mb-4'),
+    dbc.Row([ #third row 
             dbc.Col( dcc.Graph(id='sms-chart',figure=sms_fig), width=4,style={'height': '440px'}),
 
             dbc.Col( dcc.Graph(id="days-chart",figure=day_fig), width=4,style={'height': '440px'}),
@@ -229,13 +243,12 @@ app.layout = dbc.Container([
                 dcc.Graph(id="chronic-chart")], width=4,style={'height':'400px'})
         ],className='mb-4'),
 
-    dbc.Row([ #Third Row   
+    dbc.Row([ #forh Row   
         
         dbc.Col([
             html.H4('ScholarShip Analysis'),
-            dcc.Graph(id='Scholarship-chart',figure=fig)
+            dcc.Graph(id='Scholarship-chart',figure=scholarship_fig)
         ],width=4,style={'height': '440px'}),
-
 
             dbc.Col([
                 html.H4('days between'),
@@ -251,14 +264,19 @@ app.layout = dbc.Container([
             ],width=8,style={'height': '400px'})
     ],style={'marginTop': '60px'}),
 
-    dbc.Row( # forth Row 
+    dbc.Row( # fifth Row 
         dbc.Col([
             html.H4('Neighborhood Map'),
+            dcc.RadioItems(id="chart-type" ,
+                            options=[{"label":"Geographic Chart","value":"geographic"},{"label":"Bar Chart","value":"bar"}],
+                            value="geographic",
+                            className='mb-3',
+                            labelStyle={'display': 'inline-block', 'margin-right': '25px'}),
             dcc.Dropdown(id='neighborhood-filter',
-                options=[{'label':n,'value':n}for n in data['Neighbourhood'].unique()]
+                options=[{'label': n, 'value': n} for n in sorted(merged_df['Neighbourhood'].unique())],
             ),
             dcc.Graph(id='neighborhood-chart')
-        ],style={'marginTop': '60px','height': '400px'})
+        ],style={'marginTop': '60px','height': '500px'})
     )
 
 ], fluid=True, style={'backgroundColor': '#181830', 'padding': '24px'})
@@ -269,26 +287,52 @@ app.layout = dbc.Container([
     Input('gender-filter','value')
 )
 def update_age_distribution(selected_gender):
-    gender_colors = {'F': '#FF4DA6', 'M': '#33C3F0'}
+    gender_colors = {'Female': '#FF4DA6', 'Male': '#33C3F0'}
     if selected_gender:
         df_filterd=data[data['Gender']==selected_gender]
-        color_sequence = [gender_colors[selected_gender]]
     else:
         df_filterd=data
-        color_sequence = [gender_colors['M'], gender_colors['F']]
     fig = px.histogram(
         df_filterd,
         x='Age',
         nbins=30,
         color='Gender',
         title='Age Distribution by Gender',
-        opacity=0.8,color_discrete_sequence=color_sequence
+        opacity=0.8,color_discrete_map=gender_colors
 )
     fig.update_layout(
         paper_bgcolor="#1A1338",     
         plot_bgcolor="#1A1338")
     return fig
 
+@app.callback(
+        Output('pie_fig','figure'),
+        Input('gender-filter','value')
+)
+def update_no_show(selected_gender):
+    if selected_gender:
+        df_filtered=data[data['Gender']==selected_gender]
+    else:
+        df_filtered=data
+    ########pie chart #####
+    pie_counts = df_filtered['No-show'].value_counts().reset_index()
+    pie_counts['No-show'] = pie_counts['No-show'].map({1: 'Show', 0: 'No Show'})
+    pie_fig = px.pie(
+        pie_counts,
+        values='count',
+        names='No-show',
+        hole=0.4,
+        color='No-show',
+        title="Show vs. No Show Rate",
+        color_discrete_sequence=colors)
+
+    pie_fig.update_layout(
+        paper_bgcolor='#181830',
+        plot_bgcolor='#181830',
+        font_color='white'
+    )
+    
+    return pie_fig
 
 @app.callback(
     Output('chronic-chart','figure'),
@@ -296,28 +340,31 @@ def update_age_distribution(selected_gender):
 )
 def update_chronic_chart(selected_condition):
     if selected_condition:
-        df_filtered =data[data[selected_condition] == 1]
+        df_filtered = data[data[selected_condition] == 1]
     else:
-        df_filtered=data[data[conditions].sum(axis=1)>0]
-    
+        df_filtered = data[data[conditions].sum(axis=1) > 0]
+
     df_filtered['Show Status'] = df_filtered['No-show'].map({0: 'No Show', 1: 'Show'})
-    counts_df = df_filtered.groupby('Show Status').size().reset_index(name='Count')
-    
+    total = len(df_filtered)
+    rate_df = df_filtered.groupby('Show Status').size().reset_index(name='Count')
+    rate_df['Rate (%)'] = (rate_df['Count'] / total) * 100
+
     fig = px.bar(
-        counts_df,
+        rate_df,
         x='Show Status',
-        y='Count',
+        y='Rate (%)',
         color='Show Status',
         color_discrete_map={'Show': '#33C3F0', 'No Show': '#FF4DA6'},
-        title=f'Show vs No Show Counts for {selected_condition if selected_condition else "All Conditions"}',
-        labels={'Count': 'Number of Appointments', 'Show Status': 'Attendance'}
+        title=f'Show vs No Show Rate for {selected_condition if selected_condition else "All Conditions"}',
+        labels={'Rate (%)': 'Attendance Rate (%)', 'Show Status': 'Attendance'}
     )
-    
+
     fig.update_layout(
         template='plotly_dark',
         paper_bgcolor='#181830',
         plot_bgcolor='#181830',
-        font_color='white'
+        font_color='white',
+        yaxis=dict(ticksuffix="%")
     )
 
     return fig
@@ -352,154 +399,66 @@ def update_days_between_chart(max_days):
     )
     return fig
 
-neighborhood_coords = {
-    'REPÚBLICA': (-20.3194, -40.3378),
-    'GOIABEIRAS': (-20.2667, -40.3000),
-    'CONQUISTA': (-15.2795, -40.9658),  # Vitória da Conquista - different city
-    'NOVA PALESTINA': (-20.2721, -40.2721),
-    'SÃO CRISTÓVÃO': (-20.3194, -40.3378),
-    'GRANDE VITÓRIA': (-20.3194, -40.3378),
-    'JARDIM DA PENHA': (-20.3057, -40.3175),
-    'SANTO ANDRÉ': (-20.3194, -40.3378),
-    'SOLON BORGES': (-20.3194, -40.3378),
-    'BONFIM': (-20.3194, -40.3378),
-    'MARIA ORTIZ': (-20.3194, -40.3378),
-    'JABOUR': (-20.3194, -40.3378),
-    'ANTÔNIO HONÓRIO': (-20.3096, -40.3039),
-    'RESISTÊNCIA': (-20.3194, -40.3378),
-    'ILHA DE SANTA MARIA': (-20.3200, -40.3200),
-    'JUCUTUQUARA': (-20.3337, -40.3505),
-    'SANTO ANTÔNIO': (-20.3194, -40.3378),
-    'BELA VISTA': (-20.3194, -40.3378),
-    'MÁRIO CYPRESTE': (-20.3194, -40.3378),
-    'PRAIA DO SUÁ': (-20.3215, -40.3125),
-    'DA PENHA': (-20.3000, -40.3400),
-    'ITARARÉ': (-20.3000, -40.3500),
-    'ANDORINHAS': (-20.3194, -40.3378),
-    'SÃO PEDRO': (-20.3194, -40.3378),
-    'SÃO JOSÉ': (-20.3194, -40.3378),
-    'REDENÇÃO': (-20.3194, -40.3378),
-    'TABUAZEIRO': (-20.3194, -40.3378),
-    'SANTOS DUMONT': (-20.3194, -40.3378),
-    'MARUÍPE': (-20.3100, -40.3300),
-    'CARATOÍRA': (-20.3194, -40.3378),
-    'ARIOVALDO FAVALESSA': (-20.3194, -40.3378),
-    'UNIVERSITÁRIO': (-20.3150, -40.3300),
-    'SANTA MARTHA': (-20.3194, -40.3378),
-    'JOANA D´ARC': (-20.3194, -40.3378),
-    'CONSOLAÇÃO': (-20.3194, -40.3378),
-    'SÃO BENEDITO': (-20.3194, -40.3378),
-    'BOA VISTA': (-20.3194, -40.3378),
-    'JARDIM CAMBURI': (-20.3050, -40.2900),
-    'CENTRO': (-20.3194, -40.3378),
-    'PARQUE MOSCOSO': (-20.3120, -40.3450),
-    'SANTA CLARA': (-20.3194, -40.3378),
-    'DO MOSCOSO': (-20.3194, -40.3378),
-    'PRAIA DO CANTO': (-20.3256, -40.3113),
-    'SANTA LÚCIA': (-20.3202, -40.3050),
-    'BARRO VERMELHO': (-20.3194, -40.3378),
-    'BENTO FERREIRA': (-20.3194, -40.3378),
-    'FONTE GRANDE': (-20.3194, -40.3378),
-    'SANTA TEREZA': (-20.3194, -40.3378),
-    'GURIGICA': (-20.3194, -40.3378),
-    'CRUZAMENTO': (-20.3194, -40.3378),
-    'JESUS DE NAZARETH': (-20.3194, -40.3378),
-    'ILHA DO PRÍNCIPE': (-20.3300, -40.3200),
-    'SANTOS REIS': (-20.3194, -40.3378),
-    'ILHA DAS CAIEIRAS': (-20.3500, -40.3300),
-    'COMDUSA': (-20.3194, -40.3378),
-    'MATA DA PRAIA': (-20.3200, -40.2550),
-    'SANTA CECÍLIA': (-20.3194, -40.3378),
-    'PIEDADE': (-20.3194, -40.3378),
-    'DE LOURDES': (-20.3194, -40.3378),
-    'MONTE BELO': (-20.3194, -40.3378),
-    'VILA RUBIM': (-20.3194, -40.3378),
-    'DO QUADRO': (-20.3194, -40.3378),
-    'ESTRELINHA': (-20.3194, -40.3378),
-    'FORTE SÃO JOÃO': (-20.3194, -40.3378),
-    'ROMÃO': (-20.3194, -40.3378),
-    'INHANGUETÁ': (-20.3194, -40.3378),
-    'DO CABRAL': (-20.3194, -40.3378),
-    'ENSEADA DO SUÁ': (-20.3200, -40.2550),
-    'ILHA DO BOI': (-20.3210, -40.3220),
-    'HORTO': (-20.3194, -40.3378),
-    'NAZARETH': (-20.3194, -40.3378),
-    'SANTA HELENA': (-20.3194, -40.3378),
-    'FRADINHOS': (-20.3194, -40.3378),
-    'SEGURANÇA DO LAR': (-20.3194, -40.3378),
-    'SANTA LUÍZA': (-20.3194, -40.3378),
-    'MORADA DE CAMBURI': (-20.3100, -40.2800),
-    'PONTAL DE CAMBURI': (-20.3100, -40.2800),
-    'ILHA DO FRADE': (-20.3100, -40.3200),
-    'AEROPORTO': (-20.2581, -40.2864),  # Eurico de Aguiar Salles Airport
-    'ILHAS OCEÂNICAS DE TRINDADE': (-20.5200, -29.3200)  # Trindade Island (offshore)
-}
-px.set_mapbox_access_token("your_token") 
-data['Latitude'] = data['Neighbourhood'].map(lambda x: neighborhood_coords.get(x, (-20.3194, -40.3378))[0])
-data['Longitude'] = data['Neighbourhood'].map(lambda x: neighborhood_coords.get(x, (-20.3194, -40.3378))[1])
-no_show_rate_by_neighborhood = data.groupby('Neighbourhood')['No-show'].apply(lambda x: 100 * (x == 0).mean()).reset_index(name='No_Show_Rate')
-plot_data = no_show_rate_by_neighborhood.merge(
-    pd.DataFrame.from_dict(neighborhood_coords, orient='index', columns=['Latitude', 'Longitude']).reset_index().rename(columns={'index': 'Neighbourhood'}),
-    on='Neighbourhood',
-    how='left'
-)
+
 @app.callback(
     Output('neighborhood-chart', 'figure'),
-    Input('neighborhood-filter', 'value')
+    [Input('neighborhood-filter','value'),
+    Input('chart-type','value')]
 )
-def update_neighborhood_chart(selected_neighborhood):
-    if selected_neighborhood:
-        filtered_df = plot_data[plot_data['Neighbourhood'] == selected_neighborhood]
+def update_neighborhood(selected_neighborhood,selected_chart):
+    if selected_chart =='geographic':
+        if selected_neighborhood:
+            plot_df = merged_df[merged_df['Neighborhood'] == selected_neighborhood]
+            zoom_level = 14  
+            center_lat = plot_df['Latitude'].iloc[0]
+            center_lon = plot_df['Longitude'].iloc[0]
+        else:
+            plot_df = merged_df.copy()
+            zoom_level = 11 
+            center_lat = plot_df['Latitude'].mean()
+            center_lon = plot_df['Longitude'].mean()
+
+        fig = px.scatter_mapbox(
+            plot_df,
+            lat="Latitude",
+            lon="Longitude",
+            size="no_show_rate",
+            color="no_show_rate",
+            color_continuous_scale=px.colors.sequential.Plasma,
+            hover_name="Neighborhood",
+            hover_data={"no_show_rate": True, "Latitude": False, "Longitude": False},
+            zoom=zoom_level,
+            height=700,
+            size_max=30,
+            range_color=[0,40]
+        )
+
+        fig.update_layout(
+            mapbox_style="open-street-map",
+            mapbox_center={"lat": center_lat, "lon": center_lon},
+            title="No-show Rate by Neighborhood",
+            paper_bgcolor="#181830"
+        )
     else:
-        filtered_df = plot_data
+        Neighbourhood_counts=data.groupby(['Neighbourhood','No-show']).size().reset_index(name='count')
+        Neighbourhood_counts['No-show'] = Neighbourhood_counts['No-show'].map({1: 'Showed Up', 0: 'No Show'})
+        fig = px.bar(
+            Neighbourhood_counts,
+            x='Neighbourhood',
+            y='count',
+            color='No-show',
+            labels={'count':'Number of Appointments','Neighbourhood': 'Neighbourhood'},
+            title='Show vs. No Show by Neighbourhood',
+            color_discrete_map={'Showed Up': "#33C3F0", 'No Show': "#FF4DA6"})
+        fig.update_layout(
+            template='plotly_dark',
+            paper_bgcolor='#181830',
+            plot_bgcolor='#181830',
+            font_color='white'
+        )
+   
 
-    fig = px.scatter_mapbox(
-        filtered_df,
-        lat='Latitude',
-        lon='Longitude',
-        size='No_Show_Rate',
-        color='No_Show_Rate',
-        hover_name='Neighbourhood',
-        color_continuous_scale='Reds',
-        size_max=30,
-        zoom=11,
-        title='No-Show Rates by Neighborhood'
-    )
-
-    fig.update_layout(
-        mapbox_style="carto-positron",
-        mapbox_center={"lat": -20.3194, "lon": -40.3378},
-        paper_bgcolor='#1A1338',
-        plot_bgcolor='#1A1338',
-        font=dict(color='white')
-    )
     return fig
-
-
-
-
-
-# @app.callback(
-#     Output('radar-chart', 'figure'),
-#     Input('segment-dropdown', 'value')
-# )
-# def update_radar(selected_segment):
-#     df, col_name = profile_options[selected_segment]
-#     radar_df = df.melt(id_vars=[col_name], var_name='Metric', value_name='Value')
-#     fig = px.line_polar(
-#         radar_df, r='Value', theta='Metric', color=col_name,
-#         line_close=True, markers=True,
-#         title=f'Patient Behavioral Profile by {selected_segment}',
-#         template='plotly_dark'
-#     )
-#     fig.update_layout(
-#         polar=dict(radialaxis=dict(tickangle=45, showline=True, linewidth=2)),
-#         paper_bgcolor='#181830',
-#         font_color='white'
-#     )
-#     return fig
-
-
 
 if __name__ == '__main__':
     app.run(debug=True)
