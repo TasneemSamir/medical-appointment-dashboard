@@ -1,4 +1,4 @@
-##Dashboard Insights – Medical Appointment No Shows
+## Dashboard Insights – Medical Appointment No Shows
   
    This dashboard analyzes the Kaggle dataset "Medical Appointment No Shows" and reveals the following insights:
 
