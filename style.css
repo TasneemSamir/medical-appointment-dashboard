@@ -1,0 +1,28 @@
+body {
+    background-color: #1A1338;
+    color: #FFFFFF;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.Select-control, .Select-menu-outer {
+    background-color: #2D1F5E;
+    color: #FFFFFF;
+    border-color: #6C4BC1;
+    
+}
+
+.Select-option {
+    background-color: #2D1F5E;
+    color: #FFFFFF;
+}
+
+.Select-option.is-focused {
+    background-color: #6C4BC1;
+    color: #FFFFFF;
+}
+
+.Select-value-label {
+    color: #FFFFFF;
+}
+
+
